@@ -16,6 +16,8 @@ class Ball {
         this.mouseX = 0;
         this.mouseY = 0;
         this.isAiming = false;  // New property to track aiming state
+        this.spin = 0; // -1 to 1, where -1 is backspin, 0 is no spin, 1 is topspin
+        this.sideSpin = 0; // -1 to 1, where -1 is left spin, 0 is no spin, 1 is right spin
     }
 
     draw(ctx) {
@@ -119,6 +121,87 @@ class Ball {
                 ctx.stroke();
             }
         }
+
+        // Draw spin indicator for cue ball when aiming
+        if (this.isCueBall && (this.isAiming || this.isDragging)) {  // Show when aiming or dragging
+            // Draw spin indicator circle
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius * 0.8, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';  // Make more visible
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            // Draw spin position marker and arrow
+            if (this.spin !== 0 || this.sideSpin !== 0) {
+                // Calculate aim direction
+                const dx = this.mouseX - this.x;
+                const dy = this.mouseY - this.y;
+                const aimAngle = Math.atan2(dy, dx);
+
+                // Calculate spin marker position relative to aim direction
+                const rotatedX = this.sideSpin * Math.cos(aimAngle + Math.PI/2) + 
+                               this.spin * Math.cos(aimAngle);
+                const rotatedY = this.sideSpin * Math.sin(aimAngle + Math.PI/2) + 
+                               this.spin * Math.sin(aimAngle);
+
+                // Scale the offset and add to ball position
+                const markerX = this.x + (rotatedX * this.radius * 0.6);  // Increased from 0.5
+                const markerY = this.y + (rotatedY * this.radius * 0.6);  // Increased from 0.5
+
+                // Draw the arrow first (behind the marker)
+                const arrowLength = this.radius * 0.4;  // Increased from 0.3
+                const arrowWidth = this.radius * 0.2;   // Increased from 0.15
+                
+                // Draw arrow line
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y);
+                ctx.lineTo(markerX, markerY);
+                ctx.strokeStyle = 'rgba(255, 215, 0, 0.8)';  // More visible gold
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // Draw arrow head
+                ctx.beginPath();
+                ctx.moveTo(markerX, markerY);
+                const headAngle = Math.atan2(markerY - this.y, markerX - this.x);
+                ctx.lineTo(
+                    markerX - Math.cos(headAngle - Math.PI/6) * arrowWidth,
+                    markerY - Math.sin(headAngle - Math.PI/6) * arrowWidth
+                );
+                ctx.lineTo(
+                    markerX - Math.cos(headAngle + Math.PI/6) * arrowWidth,
+                    markerY - Math.sin(headAngle + Math.PI/6) * arrowWidth
+                );
+                ctx.closePath();
+                ctx.fillStyle = 'rgba(255, 215, 0, 0.8)';
+                ctx.fill();
+
+                // Draw the spin marker on top
+                ctx.beginPath();
+                ctx.arc(markerX, markerY, this.radius * 0.25, 0, Math.PI * 2);  // Increased from 0.2
+                ctx.fillStyle = '#ffd700';
+                ctx.fill();
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            }
+        }
+
+        // Draw power indicator and escape hint when dragging
+        if (this.isDragging) {
+            const dragDistance = Math.hypot(this.startDragX - this.x, this.startDragY - this.y);
+            const maxPower = 400;
+            const power = Math.min(dragDistance, maxPower);
+            const powerPercentage = dragDistance / maxPower;
+            
+            // ... existing power indicator code ...
+
+            // Add escape hint
+            ctx.font = '14px Arial';
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+            ctx.textAlign = 'center';
+            ctx.fillText('Press Esc to cancel shot', this.x, this.y - this.radius * 2.5);
+        }
     }
 
     getBaseColor() {
@@ -219,10 +302,16 @@ class Ball {
                     this.pocketed = true;
                     console.log('Ball being pocketed:', this.number);
                     
+                    if (this.number !== 0) { // Not cue ball
+                        // Add to pocketed balls array
+                        pocketedBalls.push(this);
+                        // Add score
+                        score += getBallValue(this.number);
+                    }
+                    
                     // Track last sunk ball (except cue ball and 8 ball)
                     if (this.number !== 0 && this.number !== 8) {
                         lastSunkBall = this;
-                        // Set player's ball type (stripes/solids) on first ball sunk
                         if (playerIsStripes === null) {
                             playerIsStripes = this.isStriped;
                         }
@@ -305,6 +394,52 @@ class Ball {
                     ballHitSound.play().catch(e => console.error('Error playing collision sound:', e));
                 }
             }
+        }
+
+        // Apply spin effects
+        this.applySpinEffect();
+
+        // Modify bounce physics to account for spin
+        if (this.x > maxX || this.x < minX) {
+            if (shouldBounce(this.x, this.y, pockets, tableConfig)) {
+                // Reverse side spin on horizontal bounces
+                this.sideSpin = -this.sideSpin * 0.8;
+            }
+        }
+        if (this.y > maxY || this.y < minY) {
+            if (shouldBounce(this.x, this.y, pockets, tableConfig)) {
+                // Reverse side spin on vertical bounces
+                this.sideSpin = -this.sideSpin * 0.8;
+            }
+        }
+    }
+
+    applySpinEffect() {
+        if (Math.abs(this.spin) > 0.01) {
+            // Apply forward/backward spin effect
+            const speed = Math.hypot(this.dx, this.dy);
+            if (speed > 0.1) {
+                const spinEffect = this.spin * speed * 0.015;
+                this.dx += (this.dx / speed) * spinEffect;
+                this.dy += (this.dy / speed) * spinEffect;
+            }
+            // Gradually reduce spin
+            this.spin *= 0.98;
+        }
+
+        if (Math.abs(this.sideSpin) > 0.01) {
+            // Apply side spin effect
+            const speed = Math.hypot(this.dx, this.dy);
+            if (speed > 0.1) {
+                // Calculate perpendicular direction for side spin
+                const perpX = -this.dy / speed;
+                const perpY = this.dx / speed;
+                const sideEffect = this.sideSpin * speed * 0.01;
+                this.dx += perpX * sideEffect;
+                this.dy += perpY * sideEffect;
+            }
+            // Gradually reduce side spin
+            this.sideSpin *= 0.98;
         }
     }
 }
@@ -560,6 +695,10 @@ let gameOverMessage = '';
 let lastSunkBall = null;
 let playerIsStripes = null; // Will be set after first ball is sunk
 
+// Add to global variables at top
+let score = 0;
+let pocketedBalls = []; // Array to track pocketed balls in order
+
 // Wait for DOM to be loaded before initializing everything
 document.addEventListener('DOMContentLoaded', () => {
     console.log('DOM loaded, initializing...');
@@ -578,6 +717,23 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function setupMouseHandlers(balls) {
+    let shotCancelled = false;  // Track if shot was cancelled
+
+    // Add keyboard event listener for Escape
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            const cueBall = balls.find(ball => ball.number === 0);
+            if (cueBall && cueBall.isDragging) {
+                cueBall.isDragging = false;
+                // Reset drag position to prevent movement
+                cueBall.startDragX = cueBall.x;
+                cueBall.startDragY = cueBall.y;
+                shotCancelled = true;
+                console.log('Shot cancelled with Escape key');
+            }
+        }
+    });
+
     canvas.addEventListener('mousedown', (e) => {
         const rect = canvas.getBoundingClientRect();
         const scaleX = canvas.width / rect.width;
@@ -590,6 +746,7 @@ function setupMouseHandlers(balls) {
             cueBall.isDragging = true;
             cueBall.startDragX = mouseX;
             cueBall.startDragY = mouseY;
+            shotCancelled = false;  // Reset shot cancelled flag
         }
     });
 
@@ -607,7 +764,8 @@ function setupMouseHandlers(balls) {
             
             // Check if mouse is near cue ball to show aim line
             const distToBall = Math.hypot(mouseX - cueBall.x, mouseY - cueBall.y);
-            cueBall.isAiming = distToBall < 150; // Show aim line when mouse is within 150 pixels
+            const wasAiming = cueBall.isAiming;
+            cueBall.isAiming = distToBall < 150;
             
             if (cueBall.isDragging) {
                 cueBall.startDragX = mouseX;
@@ -619,24 +777,49 @@ function setupMouseHandlers(balls) {
     canvas.addEventListener('mouseup', (e) => {
         const cueBall = balls.find(ball => ball.number === 0);
         if (cueBall.isDragging) {
-            const dx = cueBall.x - cueBall.startDragX;
-            const dy = cueBall.y - cueBall.startDragY;
-            const distance = Math.hypot(dx, dy);
-            const power = Math.min(distance / 4, 250) * cueSensitivity; // Adjusted power scaling
-            
-            // Normalize the direction and apply power
-            const dirX = dx / distance;
-            const dirY = dy / distance;
-            cueBall.dx = dirX * power;
-            cueBall.dy = dirY * power;
-            cueBall.isDragging = false;
-            
-            if (distance > 0) {
-                shotCount++;
-                console.log('Playing cue hit sound');
-                ballHitSound.currentTime = 0;
-                ballHitSound.play().catch(e => console.error('Error playing collision sound:', e));
+            if (!shotCancelled) {  // Only process the shot if not cancelled
+                const dx = cueBall.x - cueBall.startDragX;
+                const dy = cueBall.y - cueBall.startDragY;
+                const distance = Math.hypot(dx, dy);
+                
+                if (distance > 0) {
+                    const power = Math.min(distance / 4, 250) * cueSensitivity;
+                    
+                    // Normalize the direction and apply power
+                    const dirX = dx / distance;
+                    const dirY = dy / distance;
+                    
+                    // Apply base velocity
+                    cueBall.dx = dirX * power;
+                    cueBall.dy = dirY * power;
+                    
+                    // Apply initial spin effects
+                    if (Math.abs(cueBall.spin) > 0.01 || Math.abs(cueBall.sideSpin) > 0.01) {
+                        const spinPower = power * 0.2;
+                        cueBall.dx += cueBall.sideSpin * spinPower * -dirY;
+                        cueBall.dy += cueBall.sideSpin * spinPower * dirX;
+                        cueBall.dx *= (1 + cueBall.spin * 0.2);
+                        cueBall.dy *= (1 + cueBall.spin * 0.2);
+                    }
+                    
+                    shotCount++;
+                    console.log('Shot taken with spin:', {
+                        topSpin: cueBall.spin,
+                        sideSpin: cueBall.sideSpin,
+                        power: power
+                    });
+                    ballHitSound.currentTime = 0;
+                    ballHitSound.play().catch(e => console.error('Error playing collision sound:', e));
+                    
+                    // Reset spin control after shot
+                    resetSpinControl();
+                }
             }
+            // Always reset these states
+            cueBall.isDragging = false;
+            cueBall.startDragX = cueBall.x;  // Reset drag position
+            cueBall.startDragY = cueBall.y;
+            shotCancelled = false;
         }
     });
 }
@@ -706,10 +889,15 @@ function createUIElements() {
         });
 
         pocketSizeSlider.addEventListener('input', (e) => {
-            const value = parseFloat(e.target.value);
-            tableConfig.pocketSensitivity = value;
-            pocketSizeValue.textContent = value.toFixed(1);
-            console.log('Pocket size updated:', value);
+            const displayValue = parseFloat(e.target.value);
+            // Convert display value to internal value (1.0 display = 1.2 internal)
+            const internalValue = displayValue * 1.2;
+            tableConfig.pocketSensitivity = internalValue;
+            pocketSizeValue.textContent = displayValue.toFixed(1);
+            console.log('Pocket size updated:', {
+                display: displayValue,
+                internal: internalValue
+            });
         });
     } else {
         console.error('Could not find sliders:', {
@@ -717,6 +905,31 @@ function createUIElements() {
             controlRows: document.querySelectorAll('.control-row').length
         });
     }
+
+    // Set up spin controls (both modal and floating)
+    setupSpinControls('.spin-cell');
+}
+
+function setupSpinControls(selector) {
+    const spinCells = document.querySelectorAll('.static-spin-control ' + selector);
+    let selectedSpinCell = document.querySelector('.static-spin-control ' + `${selector}[data-spin="0"][data-side="0"]`);
+    selectedSpinCell.classList.add('selected');
+
+    spinCells.forEach(cell => {
+        cell.addEventListener('click', () => {
+            // Update selected cell
+            selectedSpinCell.classList.remove('selected');
+            cell.classList.add('selected');
+            selectedSpinCell = cell;
+
+            // Update cue ball spin values
+            const cueBall = balls.find(ball => ball.number === 0);
+            if (cueBall) {
+                cueBall.spin = parseFloat(cell.dataset.spin);
+                cueBall.sideSpin = parseFloat(cell.dataset.side);
+            }
+        });
+    });
 }
 
 // Create the balls
@@ -772,16 +985,19 @@ let shotCount = 0;
 function respawnCueBall() {
     const cueBall = balls.find(ball => ball.number === 0);
     if (cueBall.pocketed) {
-        // Respawn cue ball
         cueBall.pocketed = false;
         cueBall.x = tableConfig.feltX + tableConfig.feltWidth * 0.25;
         cueBall.y = canvas.height/2;
         cueBall.dx = 0;
         cueBall.dy = 0;
         
-        // Return last sunk ball if exists
         if (lastSunkBall && lastSunkBall.pocketed) {
-            // Find a clear spot for the ball
+            // Remove ball from pocketed balls array
+            pocketedBalls = pocketedBalls.filter(ball => ball.number !== lastSunkBall.number);
+            // Subtract score
+            score -= getBallValue(lastSunkBall.number);
+            
+            // Return ball to play
             const clearSpot = findClearSpot(balls);
             if (clearSpot) {
                 lastSunkBall.pocketed = false;
@@ -1150,6 +1366,8 @@ function animate() {
         }
     }
     
+    drawScoreArea(ctx);
+    
     requestAnimationFrame(animate);
 }
 
@@ -1162,5 +1380,92 @@ function restartGame() {
     balls.length = 0; // Clear all balls
     balls.push(...initializeGame()); // Reinitialize balls
     shotCount = 0;
+    score = 0;
+    pocketedBalls = [];
     gameOver = false;
+}
+
+// Add this helper function
+function resetSpinControl() {
+    // Find and reset the selected spin cell
+    const allSpinCells = document.querySelectorAll('.static-spin-control .spin-cell');
+    const centerCell = document.querySelector('.static-spin-control .spin-cell[data-spin="0"][data-side="0"]');
+    
+    allSpinCells.forEach(cell => cell.classList.remove('selected'));
+    centerCell.classList.add('selected');
+    
+    // Reset cue ball spin values
+    const cueBall = balls.find(ball => ball.number === 0);
+    if (cueBall) {
+        cueBall.spin = 0;
+        cueBall.sideSpin = 0;
+    }
+}
+
+// Add function to calculate ball value
+function getBallValue(number) {
+    if (number === 0) return 0; // cue ball
+    if (number === 8) return 8; // 8 ball
+    return number <= 8 ? number : (15 - number + 1); // 1-7 = value, 9-15 = 7-1
+}
+
+// Update the drawScoreArea function
+function drawScoreArea(ctx) {
+    // Score and shots in top left corner
+    const scoreX = tableConfig.feltX + 20;
+    const scoreY = tableConfig.feltY - 60;
+
+    // Draw score with larger, bold font and gold color
+    ctx.font = 'bold 36px Arial';
+    ctx.fillStyle = '#ffd700';  // Gold color
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`${score}`, scoreX, scoreY);
+
+    // Draw "shots" smaller and below in white
+    ctx.font = '18px Arial';
+    ctx.fillStyle = 'white';
+    ctx.fillText(`Shots: ${shotCount}`, scoreX, scoreY + 30);
+
+    // Draw pocketed balls along the top
+    const ballsStartX = tableConfig.feltX + 150; // Start after the score
+    const ballsY = scoreY + 10; // Align with score
+    const ballRadius = 12;
+    const padding = 5;
+
+    // Draw pocketed balls in a single row
+    pocketedBalls.forEach((ball, index) => {
+        const x = ballsStartX + (ballRadius * 2 + padding) * index;
+
+        // Draw ball shadow
+        ctx.beginPath();
+        ctx.arc(x + ballRadius + 1, ballsY + ballRadius + 1, ballRadius, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.fill();
+
+        // Draw ball
+        ctx.beginPath();
+        ctx.arc(x + ballRadius, ballsY + ballRadius, ballRadius, 0, Math.PI * 2);
+        ctx.fillStyle = ball.getBaseColor();
+        ctx.fill();
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // Draw stripes if needed
+        if (ball.isStriped) {
+            ctx.beginPath();
+            ctx.arc(x + ballRadius, ballsY + ballRadius, ballRadius, 0.25 * Math.PI, 0.75 * Math.PI);
+            ctx.arc(x + ballRadius, ballsY + ballRadius, ballRadius, 1.25 * Math.PI, 1.75 * Math.PI);
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+        }
+
+        // Draw number
+        ctx.fillStyle = ball.isStriped ? 'white' : 'black';
+        ctx.font = `bold ${ballRadius}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(ball.number.toString(), x + ballRadius, ballsY + ballRadius);
+    });
 } 
