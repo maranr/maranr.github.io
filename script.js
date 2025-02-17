@@ -518,7 +518,7 @@ function drawTable(ctx, canvas) {
         { x: tableConfig.feltX + tableConfig.feltWidth, y: tableConfig.feltY + tableConfig.feltHeight }
     ];
 
-    // Draw pocket liners (slightly larger than the holes)
+    // Draw pocket liners (slightly larger than the holes for better visibility)
     pockets.forEach(pocket => {
         // Pocket liner (darker ring around pocket)
         ctx.beginPath();
