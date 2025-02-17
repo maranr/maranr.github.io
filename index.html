@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pool Game</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #333;
+            overflow: hidden;
+        }
+        .game-container {
+            position: relative;
+            display: inline-block;
+        }
+        canvas {
+            display: block;
+            background-color: #8B4513;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+        #controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+            z-index: 1000;
+            width: 300px;
+            color: white;
+            font-family: Arial;
+            display: block !important;
+        }
+        .control-row {
+            display: flex;
+            align-items: center;
+            margin: 12px 0;
+            gap: 10px;
+        }
+        .control-label {
+            min-width: 80px;
+            color: white;
+            font-size: 14px;
+        }
+        input[type="range"] {
+            width: 150px;
+            margin: 0 10px;
+            -webkit-appearance: none;
+            background: #444;
+            height: 8px;
+            border-radius: 4px;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #fff;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        .control-value {
+            min-width: 45px;
+            color: white;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <canvas id="canvas"></canvas>
+        <div id="controls"></div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html> 
