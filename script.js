@@ -147,9 +147,21 @@ class Ball {
         if (this.isDragging) return;
 
         // Get table config once
-        const { feltX, feltY, feltWidth, feltHeight, cushionWidth, pocketRadius } = tableConfig;
+        const { feltX, feltY, feltWidth, feltHeight, cushionWidth } = tableConfig;
         
-        // Check if ball is near any pocket
+        // Update position based on velocity
+        this.x += this.dx;
+        this.y += this.dy;
+
+        // Apply friction
+        this.dx *= 0.99;
+        this.dy *= 0.99;
+
+        // Stop very slow movements
+        if (Math.abs(this.dx) < 0.01) this.dx = 0;
+        if (Math.abs(this.dy) < 0.01) this.dy = 0;
+
+        // Define pockets array
         const pockets = [
             { x: feltX, y: feltY },
             { x: feltX + feltWidth/2, y: feltY },
@@ -158,6 +170,41 @@ class Ball {
             { x: feltX + feltWidth/2, y: feltY + feltHeight },
             { x: feltX + feltWidth, y: feltY + feltHeight }
         ];
+
+        // Boundary checks with bouncing
+        const maxX = feltX + feltWidth - cushionWidth - this.radius;
+        const minX = feltX + cushionWidth + this.radius;
+        const maxY = feltY + feltHeight - cushionWidth - this.radius;
+        const minY = feltY + cushionWidth + this.radius;
+
+        // Check right cushion
+        if (this.x > maxX) {
+            if (shouldBounce(this.x, this.y, pockets, tableConfig)) {
+                this.x = maxX;
+                this.dx = -this.dx * 0.85; // Add energy loss on bounce
+            }
+        }
+        // Check left cushion
+        if (this.x < minX) {
+            if (shouldBounce(this.x, this.y, pockets, tableConfig)) {
+                this.x = minX;
+                this.dx = -this.dx * 0.85;
+            }
+        }
+        // Check bottom cushion
+        if (this.y > maxY) {
+            if (shouldBounce(this.x, this.y, pockets, tableConfig)) {
+                this.y = maxY;
+                this.dy = -this.dy * 0.85;
+            }
+        }
+        // Check top cushion
+        if (this.y < minY) {
+            if (shouldBounce(this.x, this.y, pockets, tableConfig)) {
+                this.y = minY;
+                this.dy = -this.dy * 0.85;
+            }
+        }
 
         // Check for pocketing
         for (const pocket of pockets) {
@@ -198,67 +245,6 @@ class Ball {
                     pocketSound.play().catch(e => console.error('Error playing pocket sound:', e));
                     return;
                 }
-            }
-        }
-
-        // Helper function to check if near a pocket before bouncing
-        function shouldBounce(x, y) {
-            return !pockets.some(pocket => {
-                const distToPocket = Math.hypot(x - pocket.x, y - pocket.y);
-                
-                // Check if this is a corner or middle pocket
-                const isCornerPocket = (pocket.x === feltX || pocket.x === feltX + feltWidth) &&
-                                      (pocket.y === feltY || pocket.y === feltY + feltHeight);
-                const isMiddlePocket = !isCornerPocket;
-                
-                if (isCornerPocket) {
-                    // More generous no-bounce zone for corner pockets
-                    return distToPocket < pocketRadius * 2;
-                } else if (isMiddlePocket) {
-                    // Create a wider entrance for middle pockets
-                    const pocketAngle = Math.atan2(y - pocket.y, x - pocket.x);
-                    const clearance = pocketRadius * 1.8;
-                    
-                    // Check if we're in the approach zone of the middle pocket
-                    if (distToPocket < clearance) {
-                        // Allow more generous entry from proper angles
-                        const isTopPocket = pocket.y === feltY;
-                        const properApproachAngle = isTopPocket ? Math.PI / 2 : -Math.PI / 2;
-                        const angleDiff = Math.abs(normalizeAngle(pocketAngle - properApproachAngle));
-                        return angleDiff < Math.PI / 2; // 90-degree acceptance angle
-                    }
-                }
-                
-                return distToPocket < pocketRadius * 1.5;
-            });
-        }
-
-        // Right cushion with pocket awareness
-        if (this.x + this.radius > feltX + feltWidth - cushionWidth) {
-            if (shouldBounce(this.x, this.y)) {
-                this.x = feltX + feltWidth - cushionWidth - this.radius;
-                this.dx = -this.dx * 0.85;
-            }
-        }
-        // Left cushion with pocket awareness
-        if (this.x - this.radius < feltX + cushionWidth) {
-            if (shouldBounce(this.x, this.y)) {
-                this.x = feltX + cushionWidth + this.radius;
-                this.dx = -this.dx * 0.85;
-            }
-        }
-        // Bottom cushion with pocket awareness
-        if (this.y + this.radius > feltY + feltHeight - cushionWidth) {
-            if (shouldBounce(this.x, this.y)) {
-                this.y = feltY + feltHeight - cushionWidth - this.radius;
-                this.dy = -this.dy * 0.85;
-            }
-        }
-        // Top cushion with pocket awareness
-        if (this.y - this.radius < feltY + cushionWidth) {
-            if (shouldBounce(this.x, this.y)) {
-                this.y = feltY + cushionWidth + this.radius;
-                this.dy = -this.dy * 0.85;
             }
         }
 
@@ -320,18 +306,6 @@ class Ball {
                 }
             }
         }
-
-        // Apply velocity
-        this.x += this.dx;
-        this.y += this.dy;
-
-        // Apply friction (slightly increased)
-        this.dx *= 0.99;
-        this.dy *= 0.99;
-
-        // Stop balls when very slow
-        if (Math.abs(this.dx) < 0.05) this.dx = 0;
-        if (Math.abs(this.dy) < 0.05) this.dy = 0;
     }
 }
 
@@ -350,7 +324,7 @@ function drawTable(ctx, canvas) {
     );
 
     // Draw cushions with a more realistic appearance
-    const { feltX, feltY, feltWidth, feltHeight, cushionWidth } = tableConfig;
+    const { feltX, feltY, feltWidth, feltHeight, cushionWidth, pocketRadius } = tableConfig;
     
     // Cushion color and highlight
     const cushionBase = '#2d503f';
@@ -1048,14 +1022,21 @@ function isNearPocket(x, y, pocket, ballRadius) {
     const baseRadius = isCornerPocket ? tableConfig.cornerPocketRadius : tableConfig.middlePocketRadius;
     const adjustedRadius = baseRadius * tableConfig.pocketSensitivity;
     
+    // Add a safety margin to prevent balls from escaping
+    const safetyMargin = ballRadius * 0.5;
+    
     if (isCornerPocket) {
-        if (distToPocket < adjustedRadius + ballRadius) {
+        // Stricter corner pocket checks
+        if (distToPocket < adjustedRadius + ballRadius - safetyMargin) {
+            // Ball is definitely going in
             return { isPocketed: true };
         }
         
         if (distToPocket < adjustedRadius * 1.5) {
             const angleToPocket = Math.atan2(dy, dx);
             let idealAngle;
+            
+            // Calculate ideal angle based on pocket position
             if (pocket.x === tableConfig.feltX) {
                 idealAngle = pocket.y === tableConfig.feltY ? Math.PI * 0.25 : -Math.PI * 0.25;
             } else {
@@ -1064,7 +1045,8 @@ function isNearPocket(x, y, pocket, ballRadius) {
             
             const angleDiff = Math.abs(normalizeAngle(angleToPocket - idealAngle));
             if (angleDiff < tableConfig.cornerPocketAngle * tableConfig.pocketSensitivity) {
-                const pullStrength = 0.5 * tableConfig.pocketSensitivity;
+                // Apply stronger pull towards pocket center
+                const pullStrength = 0.8 * tableConfig.pocketSensitivity;
                 return {
                     isPocketed: true,
                     pullX: (pocket.x - x) * pullStrength,
@@ -1074,13 +1056,12 @@ function isNearPocket(x, y, pocket, ballRadius) {
         }
     } else {
         // Middle pockets with adjusted sensitivity
-        if (distToPocket < adjustedRadius + ballRadius) {
+        if (distToPocket < adjustedRadius + ballRadius - safetyMargin) {
             const angleToPocket = Math.atan2(dy, dx);
             const isTopPocket = pocket.y === tableConfig.feltY;
             const properApproachAngle = isTopPocket ? Math.PI / 2 : -Math.PI / 2;
             const angleDiff = Math.abs(normalizeAngle(angleToPocket - properApproachAngle));
             
-            // More strict angle check for side pockets based on sensitivity
             if (angleDiff < Math.PI / 3 * tableConfig.pocketSensitivity) {
                 return { isPocketed: true };
             }
@@ -1098,7 +1079,7 @@ function normalizeAngle(angle) {
 }
 
 // Update the shouldBounce function to use the sensitivity setting
-function shouldBounce(x, y) {
+function shouldBounce(x, y, pockets, tableConfig) {
     return !pockets.some(pocket => {
         const distToPocket = Math.hypot(x - pocket.x, y - pocket.y);
         
