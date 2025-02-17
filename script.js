@@ -91,31 +91,29 @@ class Ball {
             // Only show power indicator when actually dragging
             if (this.isDragging) {
                 const dragDistance = Math.hypot(this.startDragX - this.x, this.startDragY - this.y);
-                const maxPower = 400; // Reduced from 1000 to make red zone more accessible
+                const maxPower = 400;
                 const power = Math.min(dragDistance, maxPower);
-                const powerPercentage = power / maxPower;
+                const powerPercentage = dragDistance / maxPower;
                 
                 // Draw power indicator behind the cue ball
                 ctx.beginPath();
                 ctx.moveTo(this.x, this.y);
                 ctx.lineTo(
-                    this.x - Math.cos(angle) * power,
-                    this.y - Math.sin(angle) * power
+                    this.x - Math.cos(angle) * dragDistance,
+                    this.y - Math.sin(angle) * dragDistance
                 );
+
+                // Create gradient
                 const gradient = ctx.createLinearGradient(
                     this.x, this.y,
-                    this.x - Math.cos(angle) * power,
-                    this.y - Math.sin(angle) * power
+                    this.x - Math.cos(angle) * dragDistance,
+                    this.y - Math.sin(angle) * dragDistance
                 );
-                gradient.addColorStop(0, "rgba(255, 255, 255, 0.8)");
-                // More gradual color transition with lower thresholds
-                if (powerPercentage < 0.3) {
-                    gradient.addColorStop(1, "rgba(0, 255, 0, 0.8)"); // Green for low power
-                } else if (powerPercentage < 0.6) {
-                    gradient.addColorStop(1, "rgba(255, 255, 0, 0.8)"); // Yellow for medium power
-                } else {
-                    gradient.addColorStop(1, "rgba(255, 0, 0, 0.8)"); // Red for high power
-                }
+                
+                // Light to dark red gradient
+                gradient.addColorStop(0, "rgba(255, 150, 150, 0.8)"); // Light red
+                gradient.addColorStop(1, `rgba(${Math.floor(155 + powerPercentage * 100)}, 0, 0, 0.8)`); // Darker red based on power
+
                 ctx.strokeStyle = gradient;
                 ctx.lineWidth = 3;
                 ctx.stroke();
@@ -173,6 +171,29 @@ class Ball {
                 } else {
                     this.pocketed = true;
                     console.log('Ball being pocketed:', this.number);
+                    
+                    // Track last sunk ball (except cue ball and 8 ball)
+                    if (this.number !== 0 && this.number !== 8) {
+                        lastSunkBall = this;
+                        // Set player's ball type (stripes/solids) on first ball sunk
+                        if (playerIsStripes === null) {
+                            playerIsStripes = this.isStriped;
+                        }
+                    }
+                    
+                    // Check if it's the 8 ball
+                    if (this.number === 8) {
+                        // Count remaining unpocketed balls (excluding cue ball)
+                        const remainingBalls = balls.filter(b => !b.pocketed && b.number !== 0 && b.number !== 8).length;
+                        if (remainingBalls > 0) {
+                            // Lost the game
+                            gameOver = true;
+                            gameOverMessage = 'You sunk the 8 Ball. You lose!';
+                            gameOverOpacity = 1.0;
+                            setTimeout(restartGame, 2000); // Restart after 2 seconds
+                        }
+                    }
+                    
                     pocketSound.currentTime = 0;
                     pocketSound.play().catch(e => console.error('Error playing pocket sound:', e));
                     return;
@@ -521,13 +542,16 @@ function createRackPositions(startX, startY, radius) {
     return positions;
 }
 
-// First, let's update the canvas setup at the beginning of the file
+// Move these to the top of the file with other global variables
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 
 // Set fixed canvas size
 canvas.width = 1400;
 canvas.height = 900;
+
+// Add this with other global variables
+let balls = []; // Make balls global
 
 // Define table configuration
 const tableConfig = {
@@ -537,10 +561,10 @@ const tableConfig = {
     feltHeight: canvas.height - 300,
     cushionWidth: 20,
     pocketRadius: 35,
-    cornerPocketRadius: 28,  // Increased from default
-    middlePocketRadius: 26,  // Slightly smaller than corner pockets
-    cornerPocketAngle: Math.PI / 3,  // 60 degrees acceptance angle
-    pocketSensitivity: 1.0, // Default pocket sensitivity multiplier
+    cornerPocketRadius: 28,
+    middlePocketRadius: 26,
+    cornerPocketAngle: Math.PI / 3,
+    pocketSensitivity: 1.0,
 };
 
 // Add these at the top with other global variables
@@ -553,92 +577,177 @@ const pocketSound = new Audio('sounds/pocket.mp3');
 pocketSound.volume = 0.3;
 console.log('Pocket sound created:', pocketSound);
 
-// Add this function to create and append the UI elements
-function createUIElements() {
-    // Create container for UI controls
-    const controlsContainer = document.createElement('div');
-    controlsContainer.style.position = 'absolute';
-    controlsContainer.style.top = '10px';
-    controlsContainer.style.right = '10px';
-    controlsContainer.style.padding = '10px';
-    controlsContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
-    controlsContainer.style.borderRadius = '5px';
-    controlsContainer.style.color = 'white';
-    controlsContainer.style.zIndex = '1000';
+// Add these variables at the top with other globals
+let gameOver = false;
+let gameOverOpacity = 0;
+let gameOverMessage = '';
 
-    // Create cue power control
-    const cuePowerContainer = document.createElement('div');
-    cuePowerContainer.style.marginBottom = '15px';
+// Add this variable to track the last sunk ball and whether player is stripes or solids
+let lastSunkBall = null;
+let playerIsStripes = null; // Will be set after first ball is sunk
+
+// Wait for DOM to be loaded before initializing everything
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('DOM loaded, initializing...');
     
-    const cueLabel = document.createElement('label');
-    cueLabel.textContent = 'Cue Power: ';
-    cueLabel.style.display = 'block';
-    cueLabel.style.marginBottom = '5px';
+    // First initialize UI
+    createUIElements();
     
-    const cueSlider = document.createElement('input');
-    cueSlider.type = 'range';
-    cueSlider.min = '0.5';
-    cueSlider.max = '2.0';
-    cueSlider.step = '0.1';
-    cueSlider.value = cueSensitivity;
-    cueSlider.style.width = '150px';
+    // Then initialize the game
+    balls = initializeGame(); // Assign to global balls variable
     
-    const cueValueDisplay = document.createElement('span');
-    cueValueDisplay.textContent = cueSensitivity.toFixed(1);
-    cueValueDisplay.style.marginLeft = '10px';
+    // Set up mouse event handlers
+    setupMouseHandlers(balls);
     
-    cueSlider.addEventListener('input', (e) => {
-        const value = parseFloat(e.target.value);
-        cueSensitivity = value;
-        cueValueDisplay.textContent = value.toFixed(1);
+    // Start the animation loop
+    animate();
+});
+
+function setupMouseHandlers(balls) {
+    canvas.addEventListener('mousedown', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const mouseX = (e.clientX - rect.left) * scaleX;
+        const mouseY = (e.clientY - rect.top) * scaleY;
+
+        const cueBall = balls.find(ball => ball.number === 0);
+        if (cueBall && cueBall.isAiming) {
+            cueBall.isDragging = true;
+            cueBall.startDragX = mouseX;
+            cueBall.startDragY = mouseY;
+        }
     });
 
-    // Create pocket sensitivity control
-    const pocketSensitivityContainer = document.createElement('div');
-    pocketSensitivityContainer.style.marginBottom = '10px';
-    
-    const pocketLabel = document.createElement('label');
-    pocketLabel.textContent = 'Pocket Sensitivity: ';
-    pocketLabel.style.display = 'block';
-    pocketLabel.style.marginBottom = '5px';
-    
-    const pocketSlider = document.createElement('input');
-    pocketSlider.type = 'range';
-    pocketSlider.min = '0.5';
-    pocketSlider.max = '1.5';
-    pocketSlider.step = '0.1';
-    pocketSlider.value = tableConfig.pocketSensitivity;
-    pocketSlider.style.width = '150px';
-    
-    const pocketValueDisplay = document.createElement('span');
-    pocketValueDisplay.textContent = tableConfig.pocketSensitivity.toFixed(1);
-    pocketValueDisplay.style.marginLeft = '10px';
-    
-    pocketSlider.addEventListener('input', (e) => {
-        const value = parseFloat(e.target.value);
-        tableConfig.pocketSensitivity = value;
-        pocketValueDisplay.textContent = value.toFixed(1);
+    canvas.addEventListener('mousemove', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const mouseX = (e.clientX - rect.left) * scaleX;
+        const mouseY = (e.clientY - rect.top) * scaleY;
+
+        const cueBall = balls.find(ball => ball.number === 0);
+        if (cueBall) {
+            cueBall.mouseX = mouseX;
+            cueBall.mouseY = mouseY;
+            
+            // Check if mouse is near cue ball to show aim line
+            const distToBall = Math.hypot(mouseX - cueBall.x, mouseY - cueBall.y);
+            cueBall.isAiming = distToBall < 150; // Show aim line when mouse is within 150 pixels
+            
+            if (cueBall.isDragging) {
+                cueBall.startDragX = mouseX;
+                cueBall.startDragY = mouseY;
+            }
+        }
     });
 
-    // Assemble UI
-    cuePowerContainer.appendChild(cueLabel);
-    cuePowerContainer.appendChild(cueSlider);
-    cuePowerContainer.appendChild(cueValueDisplay);
-    
-    pocketSensitivityContainer.appendChild(pocketLabel);
-    pocketSensitivityContainer.appendChild(pocketSlider);
-    pocketSensitivityContainer.appendChild(pocketValueDisplay);
-    
-    controlsContainer.appendChild(cuePowerContainer);
-    controlsContainer.appendChild(pocketSensitivityContainer);
-    
-    document.body.appendChild(controlsContainer);
+    canvas.addEventListener('mouseup', (e) => {
+        const cueBall = balls.find(ball => ball.number === 0);
+        if (cueBall.isDragging) {
+            const dx = cueBall.x - cueBall.startDragX;
+            const dy = cueBall.y - cueBall.startDragY;
+            const distance = Math.hypot(dx, dy);
+            const power = Math.min(distance / 4, 250) * cueSensitivity; // Adjusted power scaling
+            
+            // Normalize the direction and apply power
+            const dirX = dx / distance;
+            const dirY = dy / distance;
+            cueBall.dx = dirX * power;
+            cueBall.dy = dirY * power;
+            cueBall.isDragging = false;
+            
+            if (distance > 0) {
+                shotCount++;
+                console.log('Playing cue hit sound');
+                ballHitSound.currentTime = 0;
+                ballHitSound.play().catch(e => console.error('Error playing collision sound:', e));
+            }
+        }
+    });
 }
 
-// Update initializeGame to include UI creation
+// Update createUIElements function to modify the sliders
+function createUIElements() {
+    console.log('Creating UI elements...');
+    const settingsButton = document.getElementById('settingsButton');
+    const settingsModal = document.getElementById('settingsModal');
+    const closeSettings = document.getElementById('closeSettings');
+    
+    // Simpler, more direct selectors
+    const allSliders = document.querySelectorAll('.control-row input[type="range"]');
+    const cuePowerSlider = allSliders[0];  // First slider
+    const pocketSizeSlider = allSliders[1]; // Second slider
+    
+    // Modify slider attributes for better UX
+    if (cuePowerSlider) {
+        cuePowerSlider.min = "1";
+        cuePowerSlider.max = "10";
+        cuePowerSlider.step = "0.5";
+        cuePowerSlider.value = "5"; // Default value
+    }
+    
+    if (pocketSizeSlider) {
+        pocketSizeSlider.min = "0.8"; // Minimum size that allows balls to pass
+        pocketSizeSlider.max = "1.5";  // Maximum size for easier gameplay
+        pocketSizeSlider.step = "0.1";
+        pocketSizeSlider.value = "1.0"; // Default value
+    }
+
+    // Set up modal controls first (independent of sliders)
+    settingsButton.addEventListener('click', () => {
+        console.log('Settings button clicked');
+        settingsModal.style.display = 'flex';
+    });
+
+    closeSettings.addEventListener('click', () => {
+        console.log('Close button clicked');
+        settingsModal.style.display = 'none';
+    });
+
+    settingsModal.addEventListener('click', (e) => {
+        if (e.target === settingsModal) {
+            console.log('Modal background clicked');
+            settingsModal.style.display = 'none';
+        }
+    });
+
+    // Set up sliders if they exist
+    if (cuePowerSlider && pocketSizeSlider) {
+        console.log('Setting up slider controls');
+        const cuePowerValue = cuePowerSlider.nextElementSibling;
+        const pocketSizeValue = pocketSizeSlider.nextElementSibling;
+
+        // Update initial values
+        cuePowerValue.textContent = "5.0";
+        pocketSizeValue.textContent = "1.0";
+
+        cuePowerSlider.addEventListener('input', (e) => {
+            const displayValue = parseFloat(e.target.value);
+            // Convert display value (1-10) to internal power value (0.2-2.0)
+            const internalValue = (displayValue / 5);
+            cueSensitivity = internalValue;
+            cuePowerValue.textContent = displayValue.toFixed(1);
+            console.log('Cue power updated:', displayValue, 'internal:', internalValue);
+        });
+
+        pocketSizeSlider.addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+            tableConfig.pocketSensitivity = value;
+            pocketSizeValue.textContent = value.toFixed(1);
+            console.log('Pocket size updated:', value);
+        });
+    } else {
+        console.error('Could not find sliders:', {
+            numberOfSliders: allSliders.length,
+            controlRows: document.querySelectorAll('.control-row').length
+        });
+    }
+}
+
+// Create the balls
 function initializeGame() {
     console.log('Initializing game...');
-    createUIElements();
     initializeSounds();
     const balls = [];
     const radius = 20;
@@ -682,85 +791,81 @@ function initializeGame() {
     return balls;
 }
 
-// Create the balls
-const balls = initializeGame();
-
 // Add at the top of the file with other global variables
 let shotCount = 0;
-
-// Mouse event handlers
-canvas.addEventListener('mousedown', (e) => {
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const mouseX = (e.clientX - rect.left) * scaleX;
-    const mouseY = (e.clientY - rect.top) * scaleY;
-
-    const cueBall = balls.find(ball => ball.number === 0);
-    if (cueBall && cueBall.isAiming) {
-        cueBall.isDragging = true;
-        cueBall.startDragX = mouseX;
-        cueBall.startDragY = mouseY;
-    }
-});
-
-canvas.addEventListener('mousemove', (e) => {
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const mouseX = (e.clientX - rect.left) * scaleX;
-    const mouseY = (e.clientY - rect.top) * scaleY;
-
-    const cueBall = balls.find(ball => ball.number === 0);
-    if (cueBall) {
-        cueBall.mouseX = mouseX;
-        cueBall.mouseY = mouseY;
-        
-        // Check if mouse is near cue ball to show aim line
-        const distToBall = Math.hypot(mouseX - cueBall.x, mouseY - cueBall.y);
-        cueBall.isAiming = distToBall < 150; // Show aim line when mouse is within 150 pixels
-        
-        if (cueBall.isDragging) {
-            cueBall.startDragX = mouseX;
-            cueBall.startDragY = mouseY;
-        }
-    }
-});
-
-canvas.addEventListener('mouseup', (e) => {
-    const cueBall = balls.find(ball => ball.number === 0);
-    if (cueBall.isDragging) {
-        const dx = cueBall.x - cueBall.startDragX;
-        const dy = cueBall.y - cueBall.startDragY;
-        const distance = Math.hypot(dx, dy);
-        const power = Math.min(distance / 6, 160) * cueSensitivity; // Increased max power and reduced divisor further
-        
-        // Normalize the direction and apply power
-        const dirX = dx / distance;
-        const dirY = dy / distance;
-        cueBall.dx = dirX * power;
-        cueBall.dy = dirY * power;
-        cueBall.isDragging = false;
-        
-        if (distance > 0) {
-            shotCount++;
-            console.log('Playing cue hit sound');
-            ballHitSound.currentTime = 0;
-            ballHitSound.play().catch(e => console.error('Error playing collision sound:', e));
-        }
-    }
-});
 
 // Update the cue ball starting position
 function respawnCueBall() {
     const cueBall = balls.find(ball => ball.number === 0);
     if (cueBall.pocketed) {
+        // Respawn cue ball
         cueBall.pocketed = false;
-        cueBall.x = 400;  // Adjusted for new canvas size
+        cueBall.x = tableConfig.feltX + tableConfig.feltWidth * 0.25;
         cueBall.y = canvas.height/2;
         cueBall.dx = 0;
         cueBall.dy = 0;
+        
+        // Return last sunk ball if exists
+        if (lastSunkBall && lastSunkBall.pocketed) {
+            // Find a clear spot for the ball
+            const clearSpot = findClearSpot(balls);
+            if (clearSpot) {
+                lastSunkBall.pocketed = false;
+                lastSunkBall.x = clearSpot.x;
+                lastSunkBall.y = clearSpot.y;
+                lastSunkBall.dx = 0;
+                lastSunkBall.dy = 0;
+                console.log(`Returning ball ${lastSunkBall.number} to play`);
+            }
+        }
     }
+}
+
+// Add function to find a clear spot for ball placement
+function findClearSpot(balls) {
+    const spotRadius = 30; // Search radius for clear spot
+    const gridSize = 40; // Distance between test points
+    
+    // Start searching from the center of the table
+    const centerX = tableConfig.feltX + tableConfig.feltWidth * 0.75;
+    const centerY = canvas.height/2;
+    
+    // Check spots in expanding grid
+    for (let offset = 0; offset <= Math.max(tableConfig.feltWidth, tableConfig.feltHeight)/2; offset += gridSize) {
+        // Check points in a square pattern
+        for (let dx = -offset; dx <= offset; dx += gridSize) {
+            for (let dy = -offset; dy <= offset; dy += gridSize) {
+                const testX = centerX + dx;
+                const testY = centerY + dy;
+                
+                // Make sure point is on the table
+                if (testX < tableConfig.feltX + 40 || 
+                    testX > tableConfig.feltX + tableConfig.feltWidth - 40 ||
+                    testY < tableConfig.feltY + 40 || 
+                    testY > tableConfig.feltY + tableConfig.feltHeight - 40) {
+                    continue;
+                }
+                
+                // Check if spot is clear
+                let spotIsClear = true;
+                for (const ball of balls) {
+                    if (!ball.pocketed) {
+                        const dist = Math.hypot(ball.x - testX, ball.y - testY);
+                        if (dist < spotRadius) {
+                            spotIsClear = false;
+                            break;
+                        }
+                    }
+                }
+                
+                if (spotIsClear) {
+                    return { x: testX, y: testY };
+                }
+            }
+        }
+    }
+    
+    return null;
 }
 
 // Add this function to draw the shot counter
@@ -1022,17 +1127,21 @@ function shouldBounce(x, y) {
 
 // Update the animation loop to include trajectory lines
 function animate() {
+    if (!balls || !balls.length) return; // Don't animate if balls aren't initialized
+
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     drawTable(ctx, canvas);
     
     // Check if cue ball needs respawning
     const cueBall = balls.find(ball => ball.number === 0);
-    if (cueBall.pocketed) {
+    if (cueBall && cueBall.pocketed) {
         respawnCueBall();
     }
     
     // Draw trajectory lines before drawing balls
-    drawTrajectoryLines(ctx, cueBall);
+    if (cueBall) {
+        drawTrajectoryLines(ctx, cueBall);
+    }
     
     balls.forEach(ball => {
         ball.update(canvas, balls);
@@ -1043,8 +1152,34 @@ function animate() {
     
     drawShotCounter(ctx);
     
+    // Draw game over message if needed
+    if (gameOverOpacity > 0) {
+        ctx.fillStyle = `rgba(0, 0, 0, ${gameOverOpacity})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.fillStyle = `rgba(255, 255, 255, ${gameOverOpacity})`;
+        ctx.font = 'bold 48px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(gameOverMessage, canvas.width/2, canvas.height/2);
+        
+        // Fade out the message
+        if (!gameOver) {
+            gameOverOpacity = Math.max(0, gameOverOpacity - 0.02);
+        }
+    }
+    
     requestAnimationFrame(animate);
 }
 
 // Start the game
-animate(); 
+animate();
+
+// Add the restartGame function
+function restartGame() {
+    // Reset game state
+    balls.length = 0; // Clear all balls
+    balls.push(...initializeGame()); // Reinitialize balls
+    shotCount = 0;
+    gameOver = false;
+} 
